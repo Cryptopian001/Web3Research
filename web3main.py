@@ -15,6 +15,13 @@ class AddressMonitor:
         with open('./address.json') as f:
             self.addresses = json.load(f)[0]
         self.latest_block = self.web3.eth.block_number - 1
+        
+        self.coin_address = {}
+        coin_list = json.loads(requests.get('https://api.coingecko.com/api/v3/coins/list?include_platform=true').content)
+        for coin in coin_list:
+            if 'ethereum' in coin['platforms'].keys():
+                addr = coin['platforms']['ethereum']
+                self.coin_address[addr] = coin['id']
 
     def get_block_range(self):
         start_block = self.latest_block
@@ -37,7 +44,24 @@ class AddressMonitor:
         + f'&apikey={self.api_key}'
     
     def build_slack_payload(self, record):
-        pass
+        for address in record.keys():
+            for item in record[address]:
+                from_, to_ = item['from'], item['to']
+                if from_ == address:
+                    if to_ in self.coin_address.keys():
+                        item['to'] = self.coin_address[to_]
+                    item['from'] = self.addresses[from_]
+                if to_ == address:
+                    if from_ in self.coin_address.keys():
+                        item['from'] = self.coin_address[from_]
+                    item['to'] = self.addresses[to_]
+
+        payload = '----------------------------------------'
+        for address in record.keys():
+            for item in record[address]:
+                payload += f'\nfrom *{item["from"]}* to *{item["to"]}* for *{item["value"]}* ether\n'
+                payload += '----------------------------------------\n'
+        return payload
 
     def get_transactions(self):
         new_record = {}
@@ -51,12 +75,11 @@ class AddressMonitor:
                 if response_obj['result']:
                     update = True
         if update:
-            for k in new_record.keys():
+            for k in list(new_record.keys()):
                 if not new_record[k]:
                     del new_record[k]
             payload = self.build_slack_payload(new_record)
-            new_record = '*' + json.dumps(new_record, indent=4) + '*'
-            response = requests.post(self.slack_link, data=json.dumps({'text': new_record}, indent=4))
+            response = requests.post(self.slack_link, data=json.dumps({'text': payload}, indent=4))
             print(response.content)
 
     def get_transactions_loop(self):
@@ -66,4 +89,7 @@ class AddressMonitor:
 
 if __name__ == '__main__':
     address_monitor = AddressMonitor()
+    # with open('./sample.json') as f:
+    #     data = json.load(f)
+    # print(address_monitor.build_slack_payload(data))
     address_monitor.get_transactions_loop()
