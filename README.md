@@ -12,4 +12,4 @@
 1. Figure out what coin each "to" address resolves to
 2. Make slack messages more readable
 
-
+sudo docker run -d --restart=always [container name]

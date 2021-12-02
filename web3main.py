@@ -4,7 +4,7 @@ import requests
 import time
 import json
 from datetime import datetime
-
+from os.path import exists
 
 class AddressMonitor:
 
@@ -14,23 +14,34 @@ class AddressMonitor:
         self.slack_link = 'https://hooks.slack.com/services/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'
         with open('./address.json') as f:
             self.addresses = json.load(f)[0]
+        # for key in list(self.addresses.keys()):
+        #     self.addresses[key.lower()] = self.addresses[key]
+        #     del self.addresses[key]
         self.latest_block = self.web3.eth.block_number - 1
         
         self.coin_address = {}
-        coin_list = json.loads(requests.get('https://api.coingecko.com/api/v3/coins/list?include_platform=true').content)
+        coin_list = None
+        if not exists('./coins.json'):
+            coin_list = json.loads(requests.get('https://api.coingecko.com/api/v3/coins/list?include_platform=true').content)
+            content = json.dumps(coin_list, indent=4)
+            f = open('./coins.json', 'a')
+            f.write(content)
+            f.close()
+        else:
+            f = open('./coins.json', 'r')
+            coin_list = json.loads(f.read())
+
+        if coin_list is None:
+            import sys
+            sys.exit(0)
+
         for coin in coin_list:
             if 'ethereum' in coin['platforms'].keys():
                 addr = coin['platforms']['ethereum']
                 self.coin_address[addr] = coin['id']
 
-    def get_block_range(self):
-        start_block = self.latest_block
-        end_block = self.web3.eth.block_number
-        self.latest_block = end_block
-        return start_block, end_block
-
     def address_transaction_url_formatter(self, address):
-        start_block, end_block = self.get_block_range()
+        start_block, end_block = self.latest_block, self.web3.eth.block_number
         if start_block == end_block:
             return None
         return \
@@ -68,12 +79,17 @@ class AddressMonitor:
         update = False
         for address in self.addresses.keys():
             url = self.address_transaction_url_formatter(address)
+            print(f'GET url {url}')
             if url:
                 response = requests.get(url)
-                response_obj = json.loads(response.content)
-                new_record[address] = [{'hash': entry['hash'], 'from': entry['from'], 'to': entry['to'], 'value': float(entry['value'])/1e18} for entry in response_obj['result']]
-                if response_obj['result']:
-                    update = True
+                if response.ok:
+                    response_obj = json.loads(response.content)
+                    new_record[address] = [{'hash': entry['hash'], 'from': entry['from'], 'to': entry['to'], 'value': float(entry['value'])/1e18} for entry in response_obj['result']]
+                    if response_obj['result']:
+                        update = True
+                else:
+                    print(response.content)
+                    print(f"url GET failed: {url}")
         if update:
             for k in list(new_record.keys()):
                 if not new_record[k]:
@@ -81,6 +97,7 @@ class AddressMonitor:
             payload = self.build_slack_payload(new_record)
             response = requests.post(self.slack_link, data=json.dumps({'text': payload}, indent=4))
             print(response.content)
+        self.latest_block = self.web3.eth.block_number
 
     def get_transactions_loop(self):
         while True:
@@ -88,8 +105,6 @@ class AddressMonitor:
             time.sleep(10)
 
 if __name__ == '__main__':
+    print("service started")
     address_monitor = AddressMonitor()
-    # with open('./sample.json') as f:
-    #     data = json.load(f)
-    # print(address_monitor.build_slack_payload(data))
     address_monitor.get_transactions_loop()
