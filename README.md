@@ -22,3 +22,6 @@ Dec, 3, 2021
 3. It is very hard to write unit tests for the program, finding out a way to do tests would be helpful
 
 No other problems have been observed as of right now, need to continue monitoring the program
+
+*If I had to redo the project*
+1. There is a synchronization problem between our program and the Etherscan API (where we fetch our information from) I would've used a database or persistant cache like redis to keep track of the blocks we've scanned for each address we want to monitor, because when the container crashes, or there's a synchronization problem, we would loose track of our block count and therefore miss on some transactions.
